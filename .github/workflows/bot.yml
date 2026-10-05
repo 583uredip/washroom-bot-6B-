@@ -1,0 +1,40 @@
+name: Washroom Bot
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: washroom-bot
+  cancel-in-progress: false
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: কোড নামানো
+        uses: actions/checkout@v4
+
+      - name: Python সেটআপ
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: requests ইনস্টল
+        run: pip install requests
+
+      - name: বট চালানো
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        run: python bot.py
+
+      - name: state.json সেভ
+        run: |
+          git config user.name "washroom-bot"
+          git config user.email "washroom-bot@users.noreply.github.com"
+          git add state.json
+          git diff --cached --quiet || (git commit -m "update state" && git push)
