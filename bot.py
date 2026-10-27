@@ -10,8 +10,9 @@ API = f"https://api.telegram.org/bot{TOKEN}"
 
 TZ = timezone(timedelta(hours=6))   # ঢাকা সময়
 STATE_FILE = "state.json"
-REMIND_AFTER_DAYS = 7
-REMIND_HOUR = 9                     # সকাল ৯টার পর রিমাইন্ডার যাবে
+REMIND_AFTER_DAYS = 7              # clean এর কত দিন পর প্রথম রিমাইন্ডার
+REPEAT_EVERY_DAYS = 5              # এরপর কত দিন পরপর রিমাইন্ডার
+REMIND_HOUR = 9                    # সকাল ৯টার পর রিমাইন্ডার যাবে
 
 # clean / Clean / /clean / ক্লিন
 CLEAN_PATTERN = re.compile(r"^\s*/?(clean|ক্লিন)(@\w+)?\s*$", re.IGNORECASE)
@@ -23,7 +24,7 @@ def load_state():
         "last_cleaner": None,
         "last_date": None,
         "chat_id": None,
-        "reminded": False,
+        "last_reminded": None,      # শেষ যেদিন রিমাইন্ডার গেছে
     }
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, "r", encoding="utf-8") as f:
@@ -58,7 +59,7 @@ def handle_clean(state, message):
     state["last_cleaner"] = cleaner
     state["last_date"] = clean_date.isoformat()
     state["chat_id"] = chat_id
-    state["reminded"] = False
+    state["last_reminded"] = None   # রিমাইন্ডার রিসেট
 
     text = (
         f"✅ {cleaner} আজ {clean_date.strftime('%d/%m/%Y')} তারিখে ওয়াশরুম পরিষ্কার করেছেন।\n"
@@ -92,25 +93,41 @@ def check_reminder(state):
         return
     if state["chat_id"] is None:
         return
-    if state["reminded"]:
-        return
 
     now = datetime.now(TZ)
     if now.hour < REMIND_HOUR:
         return
 
-    last = date.fromisoformat(state["last_date"])
-    if (now.date() - last).days < REMIND_AFTER_DAYS:
+    today = now.date()
+    last_clean = date.fromisoformat(state["last_date"])
+    days_passed = (today - last_clean).days
+
+    # ৭ দিন পার না হলে রিমাইন্ডার নয়
+    if days_passed < REMIND_AFTER_DAYS:
         return
+
+    # আগে রিমাইন্ডার গিয়ে থাকলে, ৫ দিন না পেরোলে আবার নয়
+    if state["last_reminded"] is not None:
+        last_reminded = date.fromisoformat(state["last_reminded"])
+        if (today - last_reminded).days < REPEAT_EVERY_DAYS:
+            return
+
+    late_days = days_passed - REMIND_AFTER_DAYS
 
     text = (
         "⏰ রিমাইন্ডার!\n\n"
-        f"{state['last_cleaner']} গত {format_date(state['last_date'])} তারিখে ওয়াশরুম পরিষ্কার করেছিলেন।\n\n"
-        "এবার যার পালা, সে দয়া করে ওয়াশরুম পরিষ্কার করুন। ধন্যবাদ। 🙏\n\n"
+        f"{state['last_cleaner']} গত {format_date(state['last_date'])} তারিখে ওয়াশরুম পরিষ্কার করেছিলেন "
+        f"({days_passed} দিন আগে)।\n"
+    )
+    if late_days > 0:
+        text += f"⚠️ পালা পার হয়ে {late_days} দিন দেরি হয়ে গেছে!\n"
+    text += (
+        "\nএবার যার পালা, সে দয়া করে ওয়াশরুম পরিষ্কার করুন। ধন্যবাদ। 🙏\n\n"
         "পরিষ্কার করে গ্রুপে clean লিখুন।"
     )
+
     send_message(state["chat_id"], text)
-    state["reminded"] = True
+    state["last_reminded"] = today.isoformat()
 
 
 def main():
